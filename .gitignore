@@ -11,7 +11,8 @@ UserSettings/
 MemoryCaptures/
 Recordings/
 CrashReports/
-
+Packages/
+ProjectSettings
 # IDE/에디터
 .vs/
 .vscode/
