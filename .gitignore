@@ -1,0 +1,42 @@
+# -------------------------
+# Unity 기본: 무시할 것들
+# -------------------------
+[Ll]ibrary/
+[Ll]ogs/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+UserSettings/
+MemoryCaptures/
+Recordings/
+CrashReports/
+
+# IDE/에디터
+.vs/
+.vscode/
+*.sln
+*.csproj
+*.pidb
+*.user
+*.userprefs
+
+# OS 잡파일
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# 추적할 폴더 (예외 해제)
+#   ※ 아래처럼 "!"를 붙이면
+#   위에서 무시하더라도 이 경로는 추적됨
+# -------------------------
+!Assets/
+!Packages/
+!ProjectSettings/
+
+# Unity 메타파일은 필요
+!*.meta
+
+# 패키지 잠금파일(있으면)
+!Packages/manifest.json
+!Packages/packages-lock.json
