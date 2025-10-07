@@ -15,6 +15,7 @@ CrashReports/
 # IDE/에디터
 .vs/
 .vscode/
+.vsconfig
 *.sln
 *.csproj
 *.pidb
@@ -31,8 +32,6 @@ Thumbs.db
 #   위에서 무시하더라도 이 경로는 추적됨
 # -------------------------
 !Assets/
-!Packages/
-!ProjectSettings/
 
 # Unity 메타파일은 필요
 !*.meta
