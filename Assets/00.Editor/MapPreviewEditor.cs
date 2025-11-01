@@ -3,23 +3,27 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 
-[CustomEditor (typeof(MapGenerator))]
-public class MapGeneratorEditor : Editor
+#if UNITY_EDITOR
+
+[CustomEditor (typeof(MapPreview))]
+public class MapPreviewEditor : Editor
 {
     public override void OnInspectorGUI()
     {
         //target = 사용자 지정 편집기가 검사하는 객체
-        MapGenerator mapGen = (MapGenerator)target;
+        MapPreview mapPreview = (MapPreview)target;
         if(DrawDefaultInspector())
         {
-            if (mapGen._autoUpdate)
+            if (mapPreview._autoUpdate)
             {
-                mapGen.DrawMapInEditor();
+                mapPreview.DrawMapInEditor();
             }
         }
         if(GUILayout.Button("Generate"))
         {
-            mapGen.DrawMapInEditor();
+            mapPreview.DrawMapInEditor();
         }    
     }
 }
+
+#endif

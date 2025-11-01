@@ -12,8 +12,12 @@ public static class FalloffGenerator
         {
             for (int j = 0; j < size; j++)
             {
-                float x = j / (float)size * 2 - 1;
+                // 중앙으로 옮기기 위해서 * 2 - 1 연산
+                // -1 ~ 1 사이의 값을 얻음.
+                float x = j / (float)size * 2 - 1; 
                 float y = i / (float)size * 2 - 1;
+
+                // 절대값이 1에 가까울수록 가장자리에 가깝고, 0에 가까울수록 중앙에 가깝다.
 
                 float value = Mathf.Max(Mathf.Abs(x), Mathf.Abs(y));
                 map[j, i] = Evaluate(value);

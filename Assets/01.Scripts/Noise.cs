@@ -4,20 +4,16 @@ using UnityEngine;
 
 public static class Noise
 { 
-
     public enum NormalizeMode { Local, Global };
 
-    
-    public static float[,] GenerateNoiseMap(int mapWidth, int mapHeight, int seed, float scale, 
-        int octaves, float persistance, float lacunarity, Vector2 offset, NormalizeMode normalizeMode)
+    public static float[,] GenerateNoiseMap(int mapWidth, int mapHeight, NoiseSettings settings, Vector2 sampleCentre)
     {
         float[,] noiseMap = new float[mapWidth, mapHeight];
 
-        System.Random prng = new System.Random(seed);
+        System.Random prng = new System.Random(settings._seed);
 
         //각 옥타브가 다른 위치에서 샘플링 되기를 원함
-        Vector2[] octaveOffsets = new Vector2[octaves];
-
+        Vector2[] octaveOffsets = new Vector2[settings._octaves];
 
         // amplitude의 합
         // 이론상 가능한(perlinValue가 모두 1) 최대 높이값
@@ -27,18 +23,16 @@ public static class Noise
         // 주기
         float frequency = 1f;
 
-        for (int i = 0; i < octaves; i++)
+        for (int i = 0; i < settings._octaves; i++)
         {
             // 하한 포함, 상한 제외 규칙으로 정수 난수를 반환
-            float offsetX = prng.Next(-100000, 100000) + offset.x;
-            float offsetY = prng.Next(-100000, 100000) - offset.y;
+            float offsetX = prng.Next(-100000, 100000) + settings._offset.x + sampleCentre.x;
+            float offsetY = prng.Next(-100000, 100000) - settings._offset.y - sampleCentre.y;
             octaveOffsets[i] = new Vector2(offsetX, offsetY);
 
             maxPossibleHeight += amplitude;
-            amplitude *= persistance;
+            amplitude *= settings._persistance;
         }
-
-        if(scale <= 0f) scale = 0.001f; //0으로 나누면 오류가 나기 때문에 예외 처리
 
         //정규화를 위한 최소값과 최대값을 저장하는 변수
         float maxLocalNoiseHeight = float.MinValue;
@@ -53,7 +47,6 @@ public static class Noise
         {
             for (int x = 0; x < mapWidth; x++)
             {
-
                 amplitude = 1f;
 
                 frequency = 1f;
@@ -62,10 +55,10 @@ public static class Noise
                 float noiseHeight = 0f;
 
                 // octave 만큼 반복
-                for(int i = 0; i < octaves; i++)
+                for(int i = 0; i < settings._octaves; i++)
                 {
-                    float sampleX = (x - halfWidth + octaveOffsets[i].x) / scale * frequency;
-                    float sampleY = (y - halfHeight + octaveOffsets[i].y) / scale * frequency;
+                    float sampleX = (x - halfWidth + octaveOffsets[i].x) / settings._scale * frequency;
+                    float sampleY = (y - halfHeight + octaveOffsets[i].y) / settings._scale * frequency;
 
                     // 때때로 음수 값으로 높이가 조절 되면 좋겠음
                     // 0 ~ 1 사이의 값에서 음수 값을 얻기 위해 (perlinValue * 2 - 1) 하여  -> (-1 ~ 1) 값을 얻음
@@ -73,55 +66,71 @@ public static class Noise
                     
                     noiseHeight += perlinValue * amplitude;
 
-                    amplitude *= persistance;
-                    frequency *= lacunarity;
+                    amplitude *= settings._persistance;
+                    frequency *= settings._lacunarity;
                 }
 
                 // 시드나 파라미터가 바뀌어도 같은 규칙이 같은 의미로 작동할 수 있도록 정규화가 필요함.
                 // 노이즈 맵에서 가장 낮은 값과 가장 높은 값을 추적해야한다.
                 if (noiseHeight > maxLocalNoiseHeight) maxLocalNoiseHeight = noiseHeight;
-                else if(noiseHeight < minLocalNoiseHeight) minLocalNoiseHeight = noiseHeight;
+                if(noiseHeight < minLocalNoiseHeight) minLocalNoiseHeight = noiseHeight;
 
                 noiseMap[x, y] = noiseHeight;
+
+                if(settings._normalizeMode == NormalizeMode.Global)
+                {
+                    // 각 청크의 고유한 최소 / 최대값이 아닌
+                    // 이론적으로 발생할 수 있는 노이즈의 최대 높이를 계산하여 정규화의 기준점으로 삼음
+                    // 정규화를 위해  -> 
+                    // (noiseMap[x, y] + 1) / (2f * maxPossibleHeight);
+                    // 하지만 대부분 perlinValue가 최대값에 못 미치기 때문에 2f 를 없앰
+                    float normalizeHeight = (noiseMap[x, y] + 1) / (maxPossibleHeight / 0.9f);
+
+                    // 구간 [min, max] 안에서 value가 min 보다 작으면 min을 반환하고 max보다 크면 max를 반환
+                    // 최소값을 0으로 막되 최대값은 제한이 없음
+                    noiseMap[x, y] = Mathf.Clamp(normalizeHeight, 0, int.MaxValue);
+                }
             }
         }
+
         //정규화
-        for (int y = 0; y < mapHeight; y++)
+        if (settings._normalizeMode == NormalizeMode.Local)
         {
-            for (int x = 0; x < mapWidth; x++)
+            for (int y = 0; y < mapHeight; y++)
             {
-                if(normalizeMode == NormalizeMode.Local)
+                for (int x = 0; x < mapWidth; x++)
                 {
                     // 청크마다 최소 높이와 최대 높이가 다르기 때문에
                     // 정규화를 했을 때 청크와 청크 사이의 이음세 높이가 다름
                     // 청크를 하나만 생성했을 때는 문제가 되지 않지만
                     // 청크를 여러 개 생성할 때는 문제가 생김
-
-
                     // 구간[a, b] 안에서 value가 어디쯤 위치해 있는지를 0 ~ 1 사이 비율로 반환하는 함수
                     noiseMap[x, y] = Mathf.InverseLerp(minLocalNoiseHeight, maxLocalNoiseHeight, noiseMap[x, y]);
                 }
-                else if(normalizeMode == NormalizeMode.Global)
-                {
-                    // 각 청크의 고유한 최소/ 최대값이 아닌
-                    // 이론적으로 발생할 수 있는 노이즈의 최대 높이를 계산하여 정규화의 기준점으로 삼음
-
-                    // 정규화를 위해  -> 
-                    // (noiseMap[x, y] + 1) / (2f * maxPossibleHeight);
-                    // 하지만 대부분 perlinValue가 최대값에 못 미치기 때문에 2f 를 없앰
-
-                    float normalizeHeight = (noiseMap[x, y] + 1) / (maxPossibleHeight);
-
-
-                    // 구간 [min, max] 안에서 value가 min 보다 작으면 min을 반환하고 max보다 크면 max를 반환
-                    // 최소값을 0으로 막되 최대값은 제한이 없음
-                    noiseMap[x, y] = Mathf.Clamp(normalizeHeight, 0, int.MaxValue);
-
-
-                }
-                
             }
         }
         return noiseMap;
+    }
+}
+
+[System.Serializable]
+public class NoiseSettings
+{
+    public Noise.NormalizeMode _normalizeMode;
+
+    [Header("크기")] public float _scale = 50;
+    [Header("노이즈 개수")] public int _octaves = 6;
+    [Range(0f, 1f)]
+    [Header("노이즈의 진폭 감소")] public float _persistance = 0.6f;
+    [Header("노이즈의 주기 증가")] public float _lacunarity = 2;
+    [Header("시드")] public int _seed;
+    [Header("오프셋")] public Vector2 _offset;
+
+    public void ValidateValues()
+    {
+        _scale = Mathf.Max(_scale, 0.01f);
+        _octaves = Mathf.Max(_octaves, 1);
+        _lacunarity = Mathf.Max(_lacunarity, 1);
+        _persistance = Mathf.Clamp01(_persistance);
     }
 }

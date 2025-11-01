@@ -1,19 +1,16 @@
+using System;
 using UnityEngine;
 
 public static class MeshGenerator
 {
-    // 높이 값이 0 ~ 1이기 때문에 높이값에 대한 승수 값이 필요
-    public static MeshData GenerateTerrainMesh(float[,] heightMap, float heightMultiplier, AnimationCurve _heightCurve, int levelOfDetail)
+    public static MeshData GenerateTerrainMesh(float[,] heightMap, MeshSettings meshSettings, int levelOfDetail)
     {
-        AnimationCurve heightCurve = new AnimationCurve(_heightCurve.keys);
-
         // 매시를 생성하는 정점 증가폭
         // 일관성을 위해 메시 증가폭을 짝수로 강제함
-        int meshSimplificationIncrement = (levelOfDetail == 0) ? 1 : levelOfDetail * 2;
+        int skipIncrement = (levelOfDetail == 0) ? 1 : levelOfDetail * 2;
 
-        int borderedSize = heightMap.GetLength(0);
-        int meshSize = borderedSize - 2 * meshSimplificationIncrement;
-        int meshSizeUnsimplified = borderedSize - 2;
+        int numVertsPerline = meshSettings.numVertsPerline;
+
 
         // 매쉬의 중심을 (0, 0, 0) 좌표로 설정하기 위해서
         // 평행 이동량을 계산 해야함
@@ -21,31 +18,30 @@ public static class MeshGenerator
         // 매쉬의 중심을 (0, 0, 0) 좌표로 설정하면 좌표가 +- 대칭이라 계산이 편해짐
         // API와 잘 맞음
         // 타일/청크 배치에 용이함
-        float topLeftX = (meshSizeUnsimplified - 1) / -2f;
-        float topLeftZ = (meshSizeUnsimplified - 1) / 2f;
+        // (-1, 1) * (meshWorldSize/2f) = (- meshWorldSize / 2f , meshWorldSize / 2f)
+        Vector2 topLeftX = new Vector2(-1, 1) * meshSettings.meshWorldSize / 2f;
 
-        // 인덱스는 0부터 시작하기 때문에 (meshSize - 1)
-        // ; (width - 1) / 증가폭 + 1
-        int verticesPerline = (meshSize - 1) / meshSimplificationIncrement + 1;
+        MeshData meshData = new MeshData(numVertsPerline, skipIncrement, meshSettings._useFlatShading);
 
-        MeshData meshData = new MeshData(verticesPerline);
-
-        int[,] vertexIndicesMap = new int[borderedSize, borderedSize];
+        int[,] vertexIndicesMap = new int[numVertsPerline, numVertsPerline];
         int meshVertexIndex = 0;
-        int borderVertexIndex = -1;
+        int outOfMeshVertexIndex = -1;
 
-        for (int y = 0; y < borderedSize; y += meshSimplificationIncrement)
+        for (int y = 0; y < numVertsPerline; y ++)
         {
-            for (int x = 0; x < borderedSize; x += meshSimplificationIncrement)
+            for (int x = 0; x < numVertsPerline; x ++)
             {
-                bool isBorderVertex = (y == 0) || (y == borderedSize - 1) || (x == 0) || (x == borderedSize - 1);
+                bool isOutOfMeshVertex = (y == 0) || (y == numVertsPerline - 1) || (x == 0) || (x == numVertsPerline - 1);
+                bool isSkippedVertex = (x > 2) && x < (numVertsPerline - 3) && (y > 2) && (y < numVertsPerline - 3)
+                    && ((x - 2) % skipIncrement != 0 || (y - 2) % skipIncrement != 0);
 
-                if(isBorderVertex)
+
+                if (isOutOfMeshVertex)
                 {
-                    vertexIndicesMap[x, y] = borderVertexIndex;
-                    borderVertexIndex--;
+                    vertexIndicesMap[x, y] = outOfMeshVertexIndex;
+                    outOfMeshVertexIndex--;
                 }
-                else
+                else if(!isSkippedVertex)
                 {
                     vertexIndicesMap[x, y] = meshVertexIndex;
                     meshVertexIndex++;
@@ -53,37 +49,68 @@ public static class MeshGenerator
             }
         }
 
-        for (int y = 0; y < borderedSize; y += meshSimplificationIncrement)
+        for (int y = 0; y < numVertsPerline; y++)
         {
-            for (int x = 0; x < borderedSize; x += meshSimplificationIncrement)
+            for (int x = 0; x < numVertsPerline; x++)
             {
-                int vertexIndex = vertexIndicesMap[x, y];
+                // skipped vertices라 정의.
+                // 테두리에 있는 vertices를 edge connection vertices라 정의.
+                bool isSkippedVertex = (x > 2) && x < (numVertsPerline - 3) && (y > 2) && (y < numVertsPerline - 3) 
+                    && ((x - 2) % skipIncrement != 0 || (y - 2) % skipIncrement != 0);
 
-                Vector3 percent = new Vector2((x - meshSimplificationIncrement) / (float)meshSize,
-                                              (y - meshSimplificationIncrement) / (float)meshSize);
-
-                float height = heightCurve.Evaluate(heightMap[x, y]) * heightMultiplier;
-
-                Vector3 vertexPosition = new Vector3(topLeftX + percent.x * meshSizeUnsimplified, height, topLeftZ - percent.y * meshSizeUnsimplified);
-                
-                meshData.AddVertex(vertexPosition, percent, vertexIndex);
-
-                //vertex의 맨 오른쪽과 아래쪽은 삼각형을 만들 때 접근하지 않아도 됨.
-                if (x < borderedSize - 1 && y < borderedSize - 1)
+                if (!isSkippedVertex)
                 {
-                    int a = vertexIndicesMap[x, y];
-                    int b = vertexIndicesMap[x + meshSimplificationIncrement, y];
-                    int c = vertexIndicesMap[x, y + meshSimplificationIncrement];
-                    int d = vertexIndicesMap[x + meshSimplificationIncrement, y + meshSimplificationIncrement];
-                    
-                    meshData.AddTriangle(a,d,c);
-                    meshData.AddTriangle(d,a,b);
+                    bool isOutOfMeshVertex = (y == 0) || (y == numVertsPerline - 1) || (x == 0) || (x == numVertsPerline - 1);
+                    bool isMeshEdgeVertex = ((y == 1) || (y == numVertsPerline - 2) || (x == 1) || (x == numVertsPerline - 2)) && !isOutOfMeshVertex;
+                    bool isMainVertex = (x - 2) % skipIncrement == 0 && (y - 2) % skipIncrement == 0 && !isOutOfMeshVertex && !isMeshEdgeVertex;
+                    bool isEdgeConnectionVertex = (y == 2 || y == numVertsPerline - 3 || x == 2 || x == numVertsPerline - 3) && !isOutOfMeshVertex && !isMeshEdgeVertex && !isMainVertex;
+
+                    int vertexIndex = vertexIndicesMap[x, y];
+
+                    Vector2 percent = new Vector2(x - 1, y - 1) / (numVertsPerline - 3);
+                    Vector2 vertexPosition2D = topLeftX + new Vector2(percent.x, -percent.y) * meshSettings.meshWorldSize;
+
+                   
+
+                    float height = heightMap[x, y];
+
+                    if (isEdgeConnectionVertex)
+                    {
+                        bool isVertical = x == 2 || x == numVertsPerline - 3;
+                        int dstToMainVertexA = ((isVertical) ? (y - 2 ) : (x - 2)) % skipIncrement;
+                        int dstToMainVertexB = skipIncrement - dstToMainVertexA;
+                        float dstPercentFromAToB = dstToMainVertexA / (float)skipIncrement;
+
+                        float heightMainVertexA = heightMap[(isVertical) ? x : x - dstToMainVertexA, (isVertical) ? y - dstToMainVertexA : y];
+                        float heightMainVertexB = heightMap[(isVertical) ? x : x + dstToMainVertexB, (isVertical) ? y + dstToMainVertexB : y];
+
+                        height = heightMainVertexA * (1 - dstPercentFromAToB) + heightMainVertexB * dstPercentFromAToB;
+                    }
+
+                    meshData.AddVertex(new Vector3(vertexPosition2D.x, height, vertexPosition2D.y), percent, vertexIndex);
+
+                    bool createTriangle = x < numVertsPerline - 1 && y < numVertsPerline - 1 && (!isEdgeConnectionVertex || (x != 2 && y != 2));
+
+                    //vertex의 맨 오른쪽과 아래쪽은 삼각형을 만들 때 접근하지 않아도 됨.
+                    if (createTriangle)
+                    {
+                        int currentIncrement = (isMainVertex && x != numVertsPerline - 3 && y != numVertsPerline - 3) ? skipIncrement : 1;
+
+                        int a = vertexIndicesMap[x, y];
+                        int b = vertexIndicesMap[x + currentIncrement, y];
+                        int c = vertexIndicesMap[x, y + currentIncrement];
+                        int d = vertexIndicesMap[x + currentIncrement, y + currentIncrement];
+
+                        meshData.AddTriangle(a, d, c);
+                        meshData.AddTriangle(d, a, b);
+                    }
                 }
 
                 
             }
         }
 
+        meshData.ProcessMesh();
         return meshData;
     }
 }
@@ -105,33 +132,54 @@ public class MeshData
     Vector3[] _vertices;
     int[] _triangles;
     Vector2[] _uvs;
+    Vector3[] _bakedNormals;
 
-    Vector3[] _borderVertices;
-    int[] _borderTriagles;
+    Vector3[] _outOfMeshVertices;
+    int[] _outOfMeshTriangles;
 
     int _triangleIndex;
-    int _borderTriangleIndex;
+    int _outOfMeshTriangleIndex;
 
-    public MeshData(int verticesPerLine)
+    bool _useFlatShading;
+    public MeshData(int numVertsPerLine,int skipIncrement, bool useFlatShading)
     {
-        _vertices = new Vector3[verticesPerLine * verticesPerLine];
-        _uvs = new Vector2[verticesPerLine * verticesPerLine];
-        _triangles = new int[(verticesPerLine - 1) * (verticesPerLine - 1) * 6];
+        _useFlatShading = useFlatShading;
 
-        _borderVertices = new Vector3[verticesPerLine * 4 + 4];
+        // 정사각형이기 때문에 * 4, 중복 계산는 꼭짓점을 빼기 위해 - 4
+        int numMeshEdgeVertices = (numVertsPerLine - 2) * 4 - 4;
 
-        // 2 * 3 * (4 * vertexPerLine) (= 24 * vertexPerLine)
-        _borderTriagles = new int[24 * verticesPerLine];
+        //(폴리 하나에 스킵된 vertex가) * (한 모서리 안에 반복되는 횟수) * (정사각형이니까 * 4)
+        int numEdgeConnectionVertices = (skipIncrement - 1) * ((numVertsPerLine - 5) / skipIncrement) * 4; 
+
+        int numMainVerticesPerLine = (numVertsPerLine - 5) / skipIncrement + 1;
+
+        int numMainVertices = numMainVerticesPerLine * numMainVerticesPerLine;
+
+        _vertices = new Vector3[numMeshEdgeVertices + numEdgeConnectionVertices + numMainVertices];
+        _uvs = new Vector2[_vertices.Length];
+
+
+        // (((numVertsPerline - 2) - 1) * 4 - 4) * 2
+        int numMeshEdgeTriangles = 8 * (numVertsPerLine - 4); 
+        int numMainTriangles = (numMainVerticesPerLine - 1) * (numMainVerticesPerLine - 1) * 2;
+
+        _triangles = new int[(numMeshEdgeTriangles + numMainTriangles) * 3];
+        _outOfMeshVertices = new Vector3[numVertsPerLine * 4 - 4];
+
+        // 2 * 3 * (4 * (vertexPerLine - 1) - 4) (= 24 * (vertexPerLine - 2))
+        _outOfMeshTriangles = new int[24 * (numVertsPerLine - 2)];
 
         _triangleIndex = 0;
-        _borderTriangleIndex = 0;
+        _outOfMeshTriangleIndex = 0;
+
+        
     }
 
     public void AddVertex(Vector3 vertexPosition, Vector2 uv, int vertexIndex)
     {
         if(vertexIndex < 0)
         {
-            _borderVertices[-vertexIndex - 1] = vertexPosition;
+            _outOfMeshVertices[-vertexIndex - 1] = vertexPosition;
         }
         else
         {
@@ -144,10 +192,10 @@ public class MeshData
     {
         if(a < 0 || b < 0 || c < 0)
         {
-            _borderTriagles[_borderTriangleIndex] = a;
-            _borderTriagles[_borderTriangleIndex + 1] = b;
-            _borderTriagles[_borderTriangleIndex + 2] = c;
-            _borderTriangleIndex += 3;
+            _outOfMeshTriangles[_outOfMeshTriangleIndex] = a;
+            _outOfMeshTriangles[_outOfMeshTriangleIndex + 1] = b;
+            _outOfMeshTriangles[_outOfMeshTriangleIndex + 2] = c;
+            _outOfMeshTriangleIndex += 3;
         }
         else
         {
@@ -166,12 +214,49 @@ public class MeshData
         mesh.vertices = _vertices;
         mesh.triangles = _triangles;
         mesh.uv = _uvs;
-        mesh.normals = CalculateNormals();
 
+        if(_useFlatShading)
+        {
+            mesh.RecalculateNormals();
+        }
+        else
+        {
+            mesh.normals = _bakedNormals;
+        }
         return mesh;
     }
+    public void ProcessMesh()
+    {
+        if(_useFlatShading)
+        {
+            // 노말을 베이킹 하지 않는 이유는
+            // 인접한 청크 간에 부드러운 조명 계산을 위함인데
+            // flatShading은 각 메시 고유의 정점으로 normal을 계산하기 때문임.
+            FlatShading();
+        }
+        else
+        {
+            BakeNormals();
+        }
+    }
+    void BakeNormals()
+    {
+        _bakedNormals = CalculateNormals();
+    }
+    void FlatShading()
+    {
+        Vector3[] flatShadedVertices = new Vector3[_triangles.Length];
+        Vector2[] flatShadedUvs = new Vector2[_triangles.Length];
+        for (int i = 0; i < _triangles.Length; i++)
+        {
+            flatShadedVertices[i] = _vertices[_triangles[i]];
+            flatShadedUvs[i] = _uvs[_triangles[i]];
+            _triangles[i] = i;
+        }
 
-
+        _vertices = flatShadedVertices;
+        _uvs = flatShadedUvs;
+    }
     /// <summary>
     /// 노멀은 삼각형 표면에 수직인 방향 벡터로, 각 삼각형의 조명을 계산하는 데 사용됩니다. <br></br>
     /// Unity에서 메시를 생성할 때 정점(vertex)별로 노멀을 제공해야 하며, <br></br>
@@ -195,13 +280,13 @@ public class MeshData
             vertexNormals[vertexIndexC] += triangleNormal;
         }
         
-        int borderTriangleCount = _borderTriagles.Length / 3;
+        int borderTriangleCount = _outOfMeshTriangles.Length / 3;
         for (int i = 0; i < borderTriangleCount; i++)
         {
             int normalTriangleIndex = i * 3;
-            int vertexIndexA = _borderTriagles[normalTriangleIndex];
-            int vertexIndexB = _borderTriagles[normalTriangleIndex + 1];
-            int vertexIndexC = _borderTriagles[normalTriangleIndex + 2];
+            int vertexIndexA = _outOfMeshTriangles[normalTriangleIndex];
+            int vertexIndexB = _outOfMeshTriangles[normalTriangleIndex + 1];
+            int vertexIndexC = _outOfMeshTriangles[normalTriangleIndex + 2];
 
             Vector3 triangleNormal = SurfaceNormalFromIndices(vertexIndexA, vertexIndexB, vertexIndexC);
 
@@ -229,14 +314,13 @@ public class MeshData
 
         return vertexNormals;
     }
-
     Vector3 SurfaceNormalFromIndices(int indexA, int indexB, int indexC)
     {
        
 
-        Vector3 pointA = (indexA < 0) ? _borderVertices[-indexA - 1] : _vertices[indexA];
-        Vector3 pointB = (indexB < 0) ? _borderVertices[-indexB - 1] : _vertices[indexB];
-        Vector3 pointC = (indexC < 0) ? _borderVertices[-indexC - 1] : _vertices[indexC];
+        Vector3 pointA = (indexA < 0) ? _outOfMeshVertices[-indexA - 1] : _vertices[indexA];
+        Vector3 pointB = (indexB < 0) ? _outOfMeshVertices[-indexB - 1] : _vertices[indexB];
+        Vector3 pointC = (indexC < 0) ? _outOfMeshVertices[-indexC - 1] : _vertices[indexC];
 
         Vector3 sideAB = pointB - pointA;
         Vector3 sideAC = pointC - pointA;
